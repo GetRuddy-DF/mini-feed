@@ -1,28 +1,28 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import "../styles/Login.css"
-
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "../supabase";
+import "../styles/Login.css";
 
 export default function Login() {
-    const [form, setForm] = useState({username: "", password: ""});
+    const [form, setForm] = useState({ email: "", password: "" });
     const [error, setError] = useState("");
     const navigate = useNavigate();
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
 
-        const users = JSON.parse(localStorage.getItem("users")) || [];
-        const user = users.find(
-            (u) => u.username === form.username && u.password === form.password
-        );
+        const { error } = await supabase.auth.signInWithPassword({
+            email: form.email,
+            password: form.password,
+        });
 
-        if(!user) {
-            setError("Login or password not correct");
+        if (error) {
+            setError("Неверный email или пароль");
             return;
         }
-        localStorage.setItem("user" , JSON.stringify(user));
-        window.location.href = "/";
+
+        navigate("/");
     };
 
     return (
@@ -30,30 +30,27 @@ export default function Login() {
             <div className="login-card">
                 <h1>MiniFeed</h1>
                 <form onSubmit={handleSubmit}>
-                    <input type="text"
-                    placeholder="Username..."
-                    onChange={(e) => setForm({...form, username: e.target.value})}
-                    value={form.username}
-                    className="login-input"
-                     />
-                     <input type="password"
-                     placeholder="Password"
-                     onChange={(e) => setForm({...form, password: e.target.value})}
-                     value={form.password}
-                     className="login-input"
-                      />
-
-                      {error && <p className="login-error">{error}</p>}
-
-                      <button className="login-btn">
-                        Login
-                      </button>
+                    <input
+                        type="email"
+                        placeholder="Email"
+                        className="login-input"
+                        value={form.email}
+                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    />
+                    <input
+                        type="password"
+                        placeholder="Password"
+                        className="login-input"
+                        value={form.password}
+                        onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    />
+                    {error && <p className="login-error">{error}</p>}
+                    <button className="login-btn">Login</button>
                 </form>
-
                 <p className="login-link">
-                    No account ? <Link to="/register">Registration</Link>
+                    No account? <Link to="/register">Registration</Link>
                 </p>
             </div>
         </div>
-    )
-};
+    );
+}

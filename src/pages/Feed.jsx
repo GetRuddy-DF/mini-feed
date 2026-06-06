@@ -1,222 +1,201 @@
 import { useState, useEffect } from "react";
+import { supabase } from "../supabase";
+import { useNavigate } from "react-router-dom";
 
-export default function App() {
-
-  const [posts, setPosts] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("posts")) || [];
-    } catch {
-      return [];
-    }
-  });
-
+export default function Feed() {
+  const [posts, setPosts] = useState([]);
   const [text, setText] = useState("");
-  const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
-  const [likedPosts, setLikedPosts] = useState([]);
+  const [user, setUser] = useState(null);
+  const [activeComments, setActiveComments] = useState(null);
   const [commentInputs, setCommentInputs] = useState({});
+  const navigate = useNavigate();
 
-  // SAVED POSTS IN LOCALSTORAGE
   useEffect(() => {
-    localStorage.setItem("posts", JSON.stringify(posts));
-  }, [posts]);
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+    fetchPosts();
+  }, []);
 
-  // ADD POSTS 
-  const addPost = () => {
+  // FETCH POSTS
+  const fetchPosts = async () => {
+    const { data } = await supabase
+      .from("posts")
+      .select(`
+        *,
+        profiles(username),
+        likes(id, user_id),
+        comments(id, text, created_at, profiles(username))
+      `)
+      .order("created_at", { ascending: false });
+
+    setPosts(data || []);
+  };
+
+  // ADD POST
+  const addPost = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const newPost = {
-      id: Date.now(),
+
+    await supabase.from("posts").insert({
       text: trimmed,
-      date: new Date().toLocaleString(),
-      likes: 0,
-      comments: [],
-    };
-    setPosts(prev => [newPost, ...prev]);
+      user_id: user.id,
+    });
+
     setText("");
+    fetchPosts();
   };
-  // LIKED POSTS 
-  const likePost = (id, e) => {
-    const button = e?.target;
-    const alreadyLiked = likedPosts.includes(id);
 
-    if (alreadyLiked) {
-      setPosts(prev => prev.map(p => p.id === id ? {...p, likes: Math.max(0, p.likes -1) } : p)
-    );
-    setLikedPosts(prev => prev.filter(pid => pid !== id));
+  // DELETE POST
+  const deletePost = async (id) => {
+    await supabase.from("posts").delete().eq("id", id);
+    fetchPosts();
+  };
+
+  // LIKE POST
+  const likePost = async (post) => {
+    const already = post.likes?.find(l => l.user_id === user.id);
+
+    if (already) {
+      await supabase.from("likes").delete().eq("id", already.id);
     } else {
-      setPosts(prev => 
-        prev.map(p => p.id === id ? {...p, likes: p.likes + 1} : p)
-      );
-      setLikedPosts(prev => [...prev, id]);
+      await supabase.from("likes").insert({
+        post_id: post.id,
+        user_id: user.id,
+      });
     }
-    if (button) spawnHearts(button);
+    fetchPosts();
   };
 
-  const spawnHearts = (button) => {
-    const heart = document.createElement("span");
-    heart.className = "heart-pop";
-    heart.textContent = "👍";
-    const rect = button.getBoundingClientRect();
-    heart.style.left = rect.left + rect.width / 2 + "px";
-    heart.style.top = rect.top + "px";
-    document.body.appendChild(heart);
-
-    setTimeout(() => heart.remove(), 1000);
-  };
-
-  // DELETING POSTS 
-  const deletePost = (id) => {
-    const el = document.querySelector(`[data-id="${id}"]`);
-    if (el) {
-      el.classList.add("removing");
-      setTimeout(() => {
-        setPosts(prev => prev.filter(p => p.id !== id));
-      }, 300);
-    } else {
-      setPosts(prev => prev.filter(p => p.id !== id));
-    }
-  };
-
-  // DELETING COMMENTS FOR ID 
-  const deleteComment = (postId, commentId) => {
-      setPosts((prev) =>
-      prev.map((p) => 
-        p.id === postId ? {...p, comments: p.comments.filter((c) => c.id !== commentId) } : p
-      )
-    );
-  };
-
-  // COMMENTS POST
-  const toggleComments = (id) => {
-    setActiveCommentsPostId((prev) => (prev === id ? null : id));
-  };
-
-  const setCommentInputFor = (postId, value) => {
-    setCommentInputs((prev) => ({...prev, [postId]: value}));
-  };
-
-  //COMMNETS ADD 
-
-  const addComment = (postId) => {
+  // ADD COMMENT
+  const addComment = async (postId) => {
     const raw = (commentInputs[postId] || "").trim();
     if (!raw) return;
 
-    const newComment = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+    await supabase.from("comments").insert({
+      post_id: postId,
+      user_id: user.id,
       text: raw,
-      date: new Date().toLocaleString(),
-    };
+    });
 
-    setPosts((prev) => 
-      prev.map((p) => (p.id === postId ? {...p, comments: [...p.comments, newComment] } : p))
-    );
-    setCommentInputs((prev) => ({...prev, [postId]: ""}));
+    setCommentInputs(prev => ({ ...prev, [postId]: "" }));
+    fetchPosts();
   };
 
-  // PRESS ENTER FOR POST 
+  // DELETE COMMENT
+  const deleteComment = async (commentId) => {
+    await supabase.from("comments").delete().eq("id", commentId);
+    fetchPosts();
+  };
+
+  // LOGOUT
+  const logout = async () => {
+    await supabase.auth.signOut();
+    navigate("/login");
+  };
+
   const handleKey = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      addPost();
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") addPost();
   };
 
   const handleCommentKey = (e, postId) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      addComment(postId);
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") addComment(postId);
   };
 
-
   return (
-    <div className="app">
-      <div className="card container">
-        <h1 className="title"> Mini-Feed</h1>
+    <div className="container">
+      <div className="card">
+        <div className="feed-header">
+          <h1 className="title">Mini-Feed</h1>
+          <button className="btn ghost" onClick={logout}>Logout</button>
+        </div>
 
-        <textarea 
-        className="input"
-        placeholder="What's Up what new ?"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKey}
+        <textarea
+          className="input"
+          placeholder="What's on your mind?"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKey}
         />
-
         <div className="row">
           <button className="btn primery" onClick={addPost}>Post</button>
           <button className="btn ghost" onClick={() => setText("")}>Clear</button>
         </div>
+      </div>
 
-        <div className="feed">
-          {posts.length === 0 && <p className="empty">This clear...</p>}
-          {posts.map((p) => (
-            <article key={p.id} data-id={p.id} className="post">
-              <div className="post-left">
-                <div className="avatar">{String(p.text).trim()[0]?.toUpperCase() || "U"}</div>
+      <div className="feed">
+        {posts.length === 0 && <p className="empty">No posts yet...</p>}
+        {posts.map(p => (
+          <article key={p.id} className="post">
+            <div className="avatar">
+              {p.profiles?.username?.[0]?.toUpperCase() || "U"}
+            </div>
+
+            <div className="post-main">
+              <div className="post-author">@{p.profiles?.username}</div>
+              <p className="post-text">{p.text}</p>
+
+              <div className="post-meta">
+                <small className="date">
+                  {new Date(p.created_at).toLocaleString()}
+                </small>
+                <div className="actions">
+                  <button
+                    className={`like ${p.likes?.find(l => l.user_id === user?.id) ? "liked" : ""}`}
+                    onClick={() => likePost(p)}
+                  >
+                    👍 {p.likes?.length || 0}
+                  </button>
+                  <button
+                    className="comment-btn"
+                    onClick={() => setActiveComments(prev => prev === p.id ? null : p.id)}
+                  >
+                    💬 {p.comments?.length || 0}
+                  </button>
+                  {p.user_id === user?.id && (
+                    <button className="del" onClick={() => deletePost(p.id)}>Delete</button>
+                  )}
+                </div>
               </div>
 
-              <div className="post-main">
-                <p className="post-text">{p.text}</p>
-                <div className="post-meta">
-                  <small className="date">{p.date}</small>
+              {activeComments === p.id && (
+                <div className="comments-panel">
+                  {p.comments?.length === 0 && (
+                    <p className="empty-comment">No comments yet</p>
+                  )}
+                  {p.comments?.map(c => (
+                    <div className="comment" key={c.id}>
+                      <div className="c-avatar">
+                        {c.profiles?.username?.[0]?.toUpperCase() || "U"}
+                      </div>
+                      <div className="c-main">
+                        <div className="c-author">@{c.profiles?.username}</div>
+                        <div className="c-text">{c.text}</div>
+                      </div>
+                      <div className="c-meta">
+                        <small>{new Date(c.created_at).toLocaleString()}</small>
+                        {c.user_id === user?.id && (
+                          <button className="c-del" onClick={() => deleteComment(c.id)}>×</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
 
-                  <div className="actions">
-                    <button 
-                      className={`like ${likedPosts.includes(p.id) ? "liked" : ""}`} 
-                      onClick={(e) => likePost(p.id, e)}
-                    >
-                      👍 {p.likes}
-                    </button>
-
-                    <button 
-                    className="comment-btn" 
-                    onClick={() => toggleComments(p.id)}>
-                      💭 {p.comments.length}
-                    </button>
-                    
-                    <button className="del" onClick={() => deletePost(p.id)}>Delete</button>
+                  <div className="add-comment">
+                    <input
+                      type="text"
+                      placeholder="Write a comment..."
+                      value={commentInputs[p.id] || ""}
+                      onChange={(e) => setCommentInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                      onKeyDown={(e) => handleCommentKey(e, p.id)}
+                    />
+                    <button className="send-btn" onClick={() => addComment(p.id)}>➤</button>
                   </div>
                 </div>
-
-                {/* COMMENTS PANEL: show when activeToggleCommentsPostId  */}
-
-                {activeCommentsPostId === p.id && (
-                  <div className="comments-panel">
-                    <div className="existing-comments">
-                      {p.comments.length === 0 ? (
-                        <p className="empty-comment">No comments, but maybe you first</p>
-                      ) : (
-                        p.comments.map((c) => (
-                          <div className="comment" key={c.id}>
-                            <div className="c-left">
-                              <div className="c-avatar">{String(c.text).trim()[0]?.toUpperCase() || "U"}</div>
-                            </div>
-                            <div className="c-main">
-                              <div className="c-text">{c.text}</div>
-                            </div>
-                            <div className="c-meta">
-                              <small className="c-date">{c.date}</small>
-                              <button className="c-del" onClick={() => deleteComment(p.id, c.id)}>Delete</button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    <div className="add-comment">
-                      <input 
-                      type="text"
-                      placeholder="write comment..."
-                      value={commentInputs[p.id] || ""}
-                      onChange={(e) => setCommentInputFor(p.id, e.target.value)}
-                      onKeyDown={(e) => handleCommentKey(e, p.id)}
-                      />
-                      <button className="send-btn" onСlick={() => addComment(p.id)}>💭</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
+              )}
+            </div>
+          </article>
+        ))}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
-import "../styles/Register.css";
+// import "../styles/Register.css";
 
 export default function Register() {
     const [form, setForm] = useState({ username: "", email: "", password: "", confirm: "" });
